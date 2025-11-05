@@ -309,3 +309,99 @@ func (r *ShafafiyaRepository) ListBySubmissionStatus(ctx context.Context, status
 
 	return settings, nil
 }
+
+// UpdateShafafiyaSettings updates all Shafafiya settings
+func (r *ShafafiyaRepository) UpdateShafafiyaSettings(ctx context.Context, orgID uuid.UUID, settings domain.ShafafiyaOrgSettings) (domain.ShafafiyaOrgSettings, error) {
+	query := `
+        UPDATE shafafiya_org_settings
+        SET username = $1, 
+            password_encrypted = $2, 
+            provider_code = $3, 
+            default_currency_code = $4,
+            default_language = $5, 
+            include_sensitive_data = $6, 
+            costing_method = $7, 
+            allocation_method = $8,
+            updated_at = NOW()
+        WHERE organization_id = $9
+        RETURNING id, created_at, updated_at
+    `
+
+	err := r.pool.QueryRow(ctx, query,
+		settings.Username,
+		settings.Password, // Already encrypted by service
+		settings.ProviderCode,
+		settings.DefaultCurrencyCode,
+		settings.DefaultLanguage,
+		settings.IncludeSensitiveData,
+		settings.CostingMethod,
+		settings.AllocationMethod,
+		orgID,
+	).Scan(&settings.ID, &settings.CreatedAt, &settings.UpdatedAt)
+
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return domain.ShafafiyaOrgSettings{}, fmt.Errorf("shafafiya settings not found for organization %s", orgID)
+		}
+		return domain.ShafafiyaOrgSettings{}, fmt.Errorf("failed to update Shafafiya settings: %w", err)
+	}
+
+	settings.OrganizationID = orgID
+
+	// Don't return password
+	settings.Password = ""
+
+	return settings, nil
+}
+
+// List retrieves all Shafafiya settings with pagination
+func (r *ShafafiyaRepository) List(ctx context.Context, limit, offset int) ([]domain.ShafafiyaOrgSettings, error) {
+	query := `
+        SELECT id, organization_id, username, provider_code, default_currency_code,
+               default_language, include_sensitive_data, costing_method, allocation_method,
+               last_submission_at, last_submission_status, last_submission_error, created_at, updated_at
+        FROM shafafiya_org_settings
+        ORDER BY created_at DESC
+        LIMIT $1 OFFSET $2
+    `
+
+	rows, err := r.pool.Query(ctx, query, limit, offset)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list Shafafiya settings: %w", err)
+	}
+	defer rows.Close()
+
+	var settings []domain.ShafafiyaOrgSettings
+	for rows.Next() {
+		var s domain.ShafafiyaOrgSettings
+		err := rows.Scan(
+			&s.ID,
+			&s.OrganizationID,
+			&s.Username,
+			&s.ProviderCode,
+			&s.DefaultCurrencyCode,
+			&s.DefaultLanguage,
+			&s.IncludeSensitiveData,
+			&s.CostingMethod,
+			&s.AllocationMethod,
+			&s.LastSubmissionAt,
+			&s.LastSubmissionStatus,
+			&s.LastSubmissionError,
+			&s.CreatedAt,
+			&s.UpdatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan Shafafiya settings: %w", err)
+		}
+
+		// Don't return password
+		s.Password = ""
+		settings = append(settings, s)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating Shafafiya settings: %w", err)
+	}
+
+	return settings, nil
+}

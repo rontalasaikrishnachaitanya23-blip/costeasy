@@ -278,3 +278,89 @@ func (h *ShafafiyaHandler) ListFailedSubmissions(c *gin.Context) {
 		"total":       len(settings),
 	})
 }
+
+// UpdateShafafiyaSettings handles PUT /api/v1/shafafiya/organizations/:org_id
+func (h *ShafafiyaHandler) UpdateShafafiyaSettings(c *gin.Context) {
+	orgIDParam := c.Param("org_id")
+	orgID, err := uuid.Parse(orgIDParam)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid organization ID"})
+		return
+	}
+
+	var req CreateShafafiyaSettingsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	settings := domain.ShafafiyaOrgSettings{
+		OrganizationID:       orgID,
+		Username:             req.Username,
+		Password:             req.Password,
+		ProviderCode:         req.ProviderCode,
+		DefaultCurrencyCode:  req.DefaultCurrencyCode,
+		DefaultLanguage:      req.DefaultLanguage,
+		IncludeSensitiveData: req.IncludeSensitiveData,
+		CostingMethod:        req.CostingMethod,
+		AllocationMethod:     req.AllocationMethod,
+	}
+
+	updated, err := h.service.UpdateShafafiyaSettings(c.Request.Context(), orgID, settings)
+	if err != nil {
+		if domainErr, ok := domain.AsDomainError(err); ok {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": domainErr.GetMessage(),
+				"code":  domainErr.GetCode(),
+			})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update Shafafiya settings"})
+		return
+	}
+
+	c.JSON(http.StatusOK, updated)
+}
+
+// ValidateShafafiyaConfig handles POST /api/v1/shafafiya/validate/:org_id
+func (h *ShafafiyaHandler) ValidateShafafiyaConfig(c *gin.Context) {
+	orgIDParam := c.Param("org_id")
+	orgID, err := uuid.Parse(orgIDParam)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid organization ID"})
+		return
+	}
+
+	if err := h.service.ValidateShafafiyaConfiguration(c.Request.Context(), orgID); err != nil {
+		if domainErr, ok := domain.AsDomainError(err); ok {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error":   domainErr.GetMessage(),
+				"code":    domainErr.GetCode(),
+				"isValid": false,
+			})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to validate configuration"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Shafafiya configuration is valid",
+		"isValid": true,
+	})
+}
+
+// ListShafafiyaSettings handles GET /api/v1/shafafiya/
+func (h *ShafafiyaHandler) ListShafafiyaSettings(c *gin.Context) {
+	// Get all Shafafiya configurations (admin only)
+	settings, err := h.service.ListAllShafafiyaSettings(c.Request.Context())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to list Shafafiya settings"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"settings": settings,
+		"total":    len(settings),
+	})
+}
