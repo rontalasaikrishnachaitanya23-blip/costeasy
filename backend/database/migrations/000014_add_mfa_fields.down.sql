@@ -1,0 +1,10 @@
+DROP TABLE IF EXISTS mfa_sessions;
+ALTER TABLE users DROP COLUMN IF EXISTS mfa_enabled;
+ALTER TABLE users DROP COLUMN IF EXISTS mfa_method;
+ALTER TABLE users DROP COLUMN IF EXISTS totp_secret;
+ALTER TABLE users DROP COLUMN IF EXISTS backup_codes;
+ALTER TABLE users DROP COLUMN IF EXISTS mfa_verified_at;
+ALTER TABLE organizations DROP COLUMN IF EXISTS mfa_enabled;
+ALTER TABLE organizations DROP COLUMN IF EXISTS mfa_enforced;
+ALTER TABLE organizations DROP COLUMN IF EXISTS mfa_method;
+ALTER TABLE organizations DROP COLUMN IF EXISTS allowed_mfa_methods;
