@@ -76,21 +76,25 @@ func AsDomainError(err error) (*DomainError, bool) {
 
 // Organization error codes
 const (
-	ErrOrgNameRequired       = "ORGANIZATION_NAME_REQUIRED"
-	ErrOrgNameTooShort       = "ORGANIZATION_NAME_TOO_SHORT"
-	ErrOrgNameTooLong        = "ORGANIZATION_NAME_TOO_LONG"
-	ErrOrgTypeRequired       = "ORGANIZATION_TYPE_REQUIRED"
-	ErrOrgTypeInvalid        = "ORGANIZATION_TYPE_INVALID"
-	ErrOrgCountryRequired    = "ORGANIZATION_COUNTRY_REQUIRED"
-	ErrOrgCurrencyRequired   = "ORGANIZATION_CURRENCY_REQUIRED"
-	ErrOrgCurrencyInvalid    = "ORGANIZATION_CURRENCY_INVALID"
-	ErrOrgEmirateRequired    = "ORGANIZATION_EMIRATE_REQUIRED"
-	ErrOrgEmirateInvalid     = "ORGANIZATION_EMIRATE_INVALID"
-	ErrOrgLicenseRequired    = "ORGANIZATION_LICENSE_REQUIRED"
-	ErrOrgEstablishmentIDReq = "ORGANIZATION_ESTABLISHMENT_ID_REQUIRED"
-	ErrOrgNotFound           = "ORGANIZATION_NOT_FOUND"
-	ErrOrgAlreadyExists      = "ORGANIZATION_ALREADY_EXISTS"
-	ErrOrgDeactivationFailed = "ORGANIZATION_DEACTIVATION_FAILED"
+	ErrOrgNameRequired          = "ORGANIZATION_NAME_REQUIRED"
+	ErrOrgNameTooShort          = "ORGANIZATION_NAME_TOO_SHORT"
+	ErrOrgNameTooLong           = "ORGANIZATION_NAME_TOO_LONG"
+	ErrOrgTypeRequired          = "ORGANIZATION_TYPE_REQUIRED"
+	ErrOrgTypeInvalid           = "ORGANIZATION_TYPE_INVALID"
+	ErrOrgCountryRequired       = "ORGANIZATION_COUNTRY_REQUIRED"
+	ErrOrgCurrencyRequired      = "ORGANIZATION_CURRENCY_REQUIRED"
+	ErrOrgCurrencyInvalid       = "ORGANIZATION_CURRENCY_INVALID"
+	ErrOrgEmirateRequired       = "ORGANIZATION_EMIRATE_REQUIRED"
+	ErrOrgEmirateInvalid        = "ORGANIZATION_EMIRATE_INVALID"
+	ErrOrgLicenseRequired       = "ORGANIZATION_LICENSE_REQUIRED"
+	ErrOrgEstablishmentIDReq    = "ORGANIZATION_ESTABLISHMENT_ID_REQUIRED"
+	ErrOrgNotFound              = "ORGANIZATION_NOT_FOUND"
+	ErrOrgAlreadyExists         = "ORGANIZATION_ALREADY_EXISTS"
+	ErrOrgDeactivationFailed    = "ORGANIZATION_DEACTIVATION_FAILED"
+	ErrOrgEstablishmentIDExists = "ORG_ESTABLISHMENT_ID_EXISTS"
+	ErrOrgAlreadyActive         = "ORG_ALREADY_ACTIVE"
+	ErrOrgAlreadyInactive       = "ORG_ALREADY_INACTIVE"
+	
 )
 
 // Shafafiya error codes
