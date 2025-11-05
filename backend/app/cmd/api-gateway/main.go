@@ -153,10 +153,10 @@ func setupSettingsRoutes(v1 *gin.RouterGroup, pool database.Pool, cfg *config.Co
 	if err != nil {
 		log.Fatalf("Failed to initialize crypto service: %v", err)
 	}
+
 	// Shafafiya config
 	shafafiyaConfig := &settingsService.Config{
-		// Add your config values here
-        ShafafiyaEnvironment: cfg.Environment,
+		ShafafiyaEnvironment: cfg.Environment,
 	}
 
 	// Shafafiya module
