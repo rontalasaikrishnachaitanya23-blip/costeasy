@@ -355,3 +355,126 @@ func (r *RoleRepository) GetSystemRoles(ctx context.Context, orgID uuid.UUID) ([
 
 	return roles, nil
 }
+
+// GetByNameGlobal retrieves a system role by name (no organization scope)
+func (r *RoleRepository) GetByNameGlobal(ctx context.Context, name string) (*domain.Role, error) {
+	query := `
+        SELECT id, organization_id, name, description, is_system_role, is_active, 
+               created_at, updated_at, created_by, updated_by
+        FROM roles
+        WHERE name = $1 
+          AND is_system_role = true
+          AND is_active = true
+        LIMIT 1
+    `
+
+	var role domain.Role
+	err := r.db.QueryRow(ctx, query, name).Scan(
+		&role.ID,
+		&role.OrganizationID,
+		&role.Name,
+		&role.Description,
+		&role.IsSystemRole,
+		&role.IsActive,
+		&role.CreatedAt,
+		&role.UpdatedAt,
+	)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return &role, nil
+}
+
+// GetUserRoles retrieves all roles for a user
+func (r *RoleRepository) GetUserRoles(ctx context.Context, userID uuid.UUID) ([]*domain.Role, error) {
+	query := `
+        SELECT r.id, r.organization_id, r.name, r.description, r.is_system_role, 
+               r.is_active, r.created_at, r.updated_at, r.created_by, r.updated_by
+        FROM roles r
+        INNER JOIN user_roles ur ON r.id = ur.role_id
+        WHERE ur.user_id = $1 AND r.is_active = true
+        ORDER BY r.name
+    `
+
+	rows, err := r.db.Query(ctx, query, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var roles []*domain.Role
+	for rows.Next() {
+		role := &domain.Role{}
+		err := rows.Scan(
+			&role.ID,
+			&role.OrganizationID,
+			&role.Name,
+			&role.Description,
+			&role.IsSystemRole,
+			&role.IsActive,
+			&role.CreatedAt,
+			&role.UpdatedAt,
+		)
+		if err != nil {
+			return nil, err
+		}
+		roles = append(roles, role)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, err
+	}
+	return roles, nil
+}
+
+// ChangeUserRole updates a user's role (replaces existing role).
+func (r *RoleRepository) ChangeUserRole(ctx context.Context, userID, roleID uuid.UUID) error {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to start transaction: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	// Remove existing roles
+	_, err = tx.Exec(ctx, `DELETE FROM user_roles WHERE user_id = $1`, userID)
+	if err != nil {
+		return fmt.Errorf("failed to remove existing roles: %w", err)
+	}
+
+	// Assign new role
+	_, err = tx.Exec(ctx, `INSERT INTO user_roles (user_id, role_id) VALUES ($1, $2)`, userID, roleID)
+	if err != nil {
+		return fmt.Errorf("failed to assign new role: %w", err)
+	}
+
+	return tx.Commit(ctx)
+}
+
+// RemoveUserRole removes a specific role from a user.
+func (r *RoleRepository) RemoveUserRole(ctx context.Context, userID, roleID uuid.UUID) error {
+	query := `DELETE FROM user_roles WHERE user_id = $1 AND role_id = $2`
+	result, err := r.db.Exec(ctx, query, userID, roleID)
+	if err != nil {
+		return fmt.Errorf("failed to remove user role: %w", err)
+	}
+	if result.RowsAffected() == 0 {
+		return fmt.Errorf("role not assigned to user")
+	}
+	return nil
+}
+
+// AssignToUser assigns a role to a user.
+func (r *RoleRepository) AssignToUser(ctx context.Context, userID, roleID uuid.UUID) error {
+	query := `
+		INSERT INTO user_roles (user_id, role_id)
+		VALUES ($1, $2)
+		ON CONFLICT (user_id, role_id) DO NOTHING
+	`
+	_, err := r.db.Exec(ctx, query, userID, roleID)
+	if err != nil {
+		return fmt.Errorf("failed to assign role to user: %w", err)
+	}
+	return nil
+}

@@ -10,6 +10,7 @@ var (
 	ErrUserInactive      = errors.New("user account is inactive")
 	ErrUserLocked        = errors.New("user account is locked")
 	ErrUserNotVerified   = errors.New("user email not verified")
+	ErrUserNotActive     = errors.New("user is not Active")
 
 	// Authentication errors
 	ErrInvalidCredentials = errors.New("invalid username or password")
@@ -39,7 +40,8 @@ var (
 	ErrInsufficientPermissions = errors.New("insufficient permissions")
 
 	// Validation errors
-	ErrInvalidEmail    = errors.New("invalid email format")
-	ErrInvalidUsername = errors.New("invalid username format")
-	ErrEmptyField      = errors.New("required field is empty")
+	ErrInvalidEmail       = errors.New("invalid email format")
+	ErrInvalidUsername    = errors.New("invalid username format")
+	ErrEmptyField         = errors.New("required field is empty")
+	ErrEmailAlreadyExists = errors.New("email already existis")
 )

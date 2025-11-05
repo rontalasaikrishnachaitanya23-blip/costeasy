@@ -302,3 +302,37 @@ func (r *PermissionRepository) BulkCreate(ctx context.Context, permissions []*do
 
 	return nil
 }
+
+// GetRolePermissions retrieves all permissions for a specific role.
+func (r *PermissionRepository) GetRolePermissions(ctx context.Context, roleID uuid.UUID) ([]*domain.Permission, error) {
+	query := `
+		SELECT p.id, p.module, p.resource, p.action,
+		       p.display_name, p.description, p.created_at
+		FROM permissions p
+		INNER JOIN role_permissions rp ON p.id = rp.permission_id
+		WHERE rp.role_id = $1
+	`
+	rows, err := r.db.Query(ctx, query, roleID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get role permissions: %w", err)
+	}
+	defer rows.Close()
+
+	var perms []*domain.Permission
+	for rows.Next() {
+		p := &domain.Permission{}
+		if err := rows.Scan(
+			&p.ID,
+			&p.Module,
+			&p.Resource,
+			&p.Action,
+			&p.DisplayName,
+			&p.Description,
+			&p.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		perms = append(perms, p)
+	}
+	return perms, rows.Err()
+}

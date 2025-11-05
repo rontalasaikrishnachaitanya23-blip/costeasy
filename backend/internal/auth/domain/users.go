@@ -18,9 +18,14 @@ type User struct {
 	Phone          *string   `json:"phone,omitempty"`
 
 	// MFA fields
-	MFAEnabled     bool     `json:"mfa_enabled"`
-	MFASecret      *string  `json:"-"` // Encrypted TOTP secret
-	MFABackupCodes []string `json:"-"` // Encrypted backup codes
+	// MFA Settings
+	MFAEnabled    bool       `json:"mfa_enabled"`
+	MFAMethod     MFAMethod  `json:"mfa_method"` // User's chosen method
+	TOTPSecret    *string    `json:"-"`          // TOTP secret (hidden from JSON)
+	BackupCodes   []string   `json:"-"`          // Encrypted backup codes
+	MFAVerifiedAt *time.Time `json:"mfa_verified_at"`
+
+	// OrganizationID  *uuid.UUID `json:"organization_id"`
 
 	// Status fields
 	IsActive        bool       `json:"is_active"`
@@ -52,6 +57,16 @@ type User struct {
 	// Relations (not stored in DB, populated via joins)
 	Roles []Role `json:"roles,omitempty"`
 }
+
+// MFAMethod type (reuse from organization)
+type MFAMethod string
+
+const (
+	MFAMethodNone  MFAMethod = "none"
+	MFAMethodSMS   MFAMethod = "sms"
+	MFAMethodEmail MFAMethod = "email"
+	MFAMethodTOTP  MFAMethod = "totp"
+)
 
 // IsLocked checks if user account is locked
 func (u *User) IsLocked() bool {

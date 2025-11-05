@@ -31,6 +31,9 @@ type PermissionRepositoryInterface interface {
 	// GetUserPermissions gets all permissions for a user (via roles)
 	GetUserPermissions(ctx context.Context, userID uuid.UUID) ([]domain.Permission, error)
 
+	GetRolePermissions(ctx context.Context, roleID uuid.UUID) ([]*domain.Permission, error)
+	//GetUserPermissions(ctx context.Context, userID uuid.UUID) ([]*domain.Permission, error)
+
 	// CheckUserPermission checks if user has specific permission
 	CheckUserPermission(ctx context.Context, userID uuid.UUID, module, resource, action string) (bool, error)
 

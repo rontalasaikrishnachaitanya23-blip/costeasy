@@ -231,3 +231,29 @@ func (r *RefreshTokenRepository) DeleteByUserID(ctx context.Context, userID uuid
 
 	return nil
 }
+
+// GetByToken retrieves a refresh token by its hash
+func (r *RefreshTokenRepository) GetByToken(ctx context.Context, tokenHash string) (*domain.RefreshToken, error) {
+    query := `
+        SELECT id, user_id, token_hash, expires_at, created_at
+        FROM refresh_tokens
+        WHERE token_hash = $1
+        LIMIT 1
+    `
+    
+    var token domain.RefreshToken
+    err := r.db.QueryRow(ctx, query, tokenHash).Scan(
+        &token.ID,
+        &token.UserID,
+        &token.TokenHash,
+        &token.ExpiresAt,
+        &token.CreatedAt,
+    )
+    
+    if err != nil {
+        return nil, err
+    }
+    
+    return &token, nil
+}
+
