@@ -1,267 +1,259 @@
-// backend/settings/internal/service/organization_service.go
 package service
 
 import (
 	"context"
-	"fmt"
+	"time"
 
 	"github.com/chaitu35/costeasy/backend/internal/settings/domain"
+	"github.com/chaitu35/costeasy/backend/internal/settings/handler/dto"
 	"github.com/chaitu35/costeasy/backend/internal/settings/repository"
 	"github.com/google/uuid"
 )
 
-// OrganizationService implements OrganizationServiceInterface
 type OrganizationService struct {
 	repo repository.OrganizationRepositoryInterface
 }
 
-// NewOrganizationService creates a new organization service
-func NewOrganizationService(repo repository.OrganizationRepositoryInterface) *OrganizationService {
-	return &OrganizationService{repo: repo}
+func NewOrganizationService(repo repository.OrganizationRepositoryInterface) OrganizationServiceInterface {
+	return &OrganizationService{
+		repo: repo,
+	}
 }
 
-// CreateOrganization creates a new organization with validation
-func (s *OrganizationService) CreateOrganization(ctx context.Context, org domain.Organization) (domain.Organization, error) {
-	// Domain validation
+// CreateOrganization creates a new organization
+func (s *OrganizationService) CreateOrganization(ctx context.Context, req *dto.CreateOrganizationRequest) (*dto.OrganizationResponse, error) {
+	// Validate organization name uniqueness
+	if req.Code != "" {
+		existing, _ := s.repo.GetByCode(ctx, req.Code)
+		if existing != nil {
+			return nil, domain.NewDomainError("organization with this code already exists", domain.ErrOrgAlreadyExists)
+		}
+	}
+
+	// For healthcare organizations, validate establishment ID uniqueness
+	if req.Type == string(domain.OrganizationTypeHealthcare) && req.EstablishmentID != "" {
+		existingEst, _ := s.repo.GetByEstablishmentID(ctx, req.EstablishmentID)
+		if existingEst != nil {
+			return nil, domain.NewDomainError("organization with this establishment ID already exists", domain.ErrOrgEstablishmentIDExists)
+		}
+	}
+
+	// Create organization domain object
+	org := &domain.Organization{
+		ID:              uuid.New(),
+		Name:            req.Name,
+		Code:            domain.StringPtr(req.Code),
+		DisplayName:     domain.StringPtr(req.DisplayName),
+		Type:            domain.OrganizationType(req.Type),
+		Country:         req.Country,
+		Emirate:         domain.EmiratePtr(req.Emirate),
+		Area:            domain.StringPtr(req.Area),
+		Address:         domain.StringPtr(req.Address),
+		City:            domain.StringPtr(req.City),
+		State:           domain.StringPtr(req.State),
+		PostalCode:      domain.StringPtr(req.PostalCode),
+		Phone:           domain.StringPtr(req.Phone),
+		Email:           domain.StringPtr(req.Email),
+		Website:         domain.StringPtr(req.Website),
+		Currency:        req.Currency,
+		TaxID:           domain.StringPtr(req.TaxID),
+		LicenseNumber:   domain.StringPtr(req.LicenseNumber),
+		EstablishmentID: domain.StringPtr(req.EstablishmentID),
+		Description:     domain.StringPtr(req.Description),
+		IsActive:        true,
+		MFAEnabled:      false,
+		MFAEnforced:     false,
+		MFAMethod:       domain.MFAMethodNone,
+		CreatedAt:       time.Now(),
+		UpdatedAt:       time.Now(),
+	}
+
+	// Validate domain rules
 	if err := org.Validate(); err != nil {
-		return domain.Organization{}, err
+		return nil, err
 	}
 
-	// Business rule: Check for duplicate name
-	exists, err := s.repo.ExistsWithName(ctx, org.Name, nil)
-	if err != nil {
-		return domain.Organization{}, fmt.Errorf("failed to check organization name: %w", err)
-	}
-	if exists {
-		return domain.Organization{}, domain.NewDomainError(
-			fmt.Sprintf("organization with name '%s' already exists", org.Name),
-			domain.ErrOrgAlreadyExists,
-		)
+	// Create in database
+	if err := s.repo.Create(ctx, org); err != nil {
+		return nil, err
 	}
 
-	// Business rule: Check for duplicate establishment ID (if provided)
-	if org.EstablishmentID != "" {
-		exists, err := s.repo.ExistsWithEstablishmentID(ctx, org.EstablishmentID, nil)
-		if err != nil {
-			return domain.Organization{}, fmt.Errorf("failed to check establishment ID: %w", err)
-		}
-		if exists {
-			return domain.Organization{}, domain.NewDomainError(
-				fmt.Sprintf("organization with establishment ID '%s' already exists", org.EstablishmentID),
-				domain.ErrOrgAlreadyExists,
-			)
-		}
-	}
-
-	// Create organization
-	created, err := s.repo.CreateOrganization(ctx, org)
-	if err != nil {
-		return domain.Organization{}, fmt.Errorf("failed to create organization: %w", err)
-	}
-
-	return created, nil
+	return dto.ToOrganizationResponse(org), nil
 }
 
-// GetOrganizationByID retrieves an organization by ID
-func (s *OrganizationService) GetOrganizationByID(ctx context.Context, id uuid.UUID) (domain.Organization, error) {
-	if id == uuid.Nil {
-		return domain.Organization{}, domain.NewDomainError("organization ID is required", domain.ErrOrgNotFound)
-	}
-
-	org, err := s.repo.GetOrganizationByID(ctx, id)
+// GetOrganizationByID retrieves organization by ID
+func (s *OrganizationService) GetOrganizationByID(ctx context.Context, id uuid.UUID) (*dto.OrganizationResponse, error) {
+	org, err := s.repo.GetByID(ctx, id)
 	if err != nil {
-		return domain.Organization{}, fmt.Errorf("organization not found: %w", err)
+		return nil, domain.NewDomainError("organization not found", domain.ErrOrgNotFound)
 	}
 
-	return org, nil
+	return dto.ToOrganizationResponse(org), nil
 }
 
 // GetOrganizationByEstablishmentID retrieves organization by establishment ID
-func (s *OrganizationService) GetOrganizationByEstablishmentID(ctx context.Context, establishmentID string) (domain.Organization, error) {
-	if establishmentID == "" {
-		return domain.Organization{}, domain.NewDomainError("establishment ID is required", domain.ErrOrgNotFound)
-	}
-
-	org, err := s.repo.GetOrganizationByEstablishmentID(ctx, establishmentID)
+func (s *OrganizationService) GetOrganizationByEstablishmentID(ctx context.Context, establishmentID string) (*dto.OrganizationResponse, error) {
+	org, err := s.repo.GetByEstablishmentID(ctx, establishmentID)
 	if err != nil {
-		return domain.Organization{}, fmt.Errorf("organization not found: %w", err)
+		return nil, domain.NewDomainError("organization not found", domain.ErrOrgNotFound)
 	}
 
-	return org, nil
+	return dto.ToOrganizationResponse(org), nil
 }
 
-// ListOrganizations retrieves organizations with filters
-func (s *OrganizationService) ListOrganizations(ctx context.Context, filters *repository.OrganizationFilters) ([]domain.Organization, error) {
-	if filters == nil {
-		filters = repository.DefaultFilters()
-	}
-
-	orgs, err := s.repo.ListOrganizations(ctx, filters)
+// ListOrganizations retrieves all organizations with pagination
+func (s *OrganizationService) ListOrganizations(ctx context.Context, limit, offset int) ([]*dto.OrganizationResponse, error) {
+	orgs, err := s.repo.List(ctx, limit, offset)
 	if err != nil {
-		return nil, fmt.Errorf("failed to list organizations: %w", err)
+		return nil, err
 	}
 
-	return orgs, nil
+	return dto.ToOrganizationListResponse(orgs), nil
 }
 
-// UpdateOrganization updates an organization
-func (s *OrganizationService) UpdateOrganization(ctx context.Context, org domain.Organization) (domain.Organization, error) {
-	if org.ID == uuid.Nil {
-		return domain.Organization{}, domain.NewDomainError("organization ID is required", domain.ErrOrgNotFound)
-	}
-
-	// Verify organization exists
-	existing, err := s.repo.GetOrganizationByID(ctx, org.ID)
+// UpdateOrganization updates an existing organization
+func (s *OrganizationService) UpdateOrganization(ctx context.Context, id uuid.UUID, req *dto.UpdateOrganizationRequest) (*dto.OrganizationResponse, error) {
+	// Get existing organization
+	existingOrg, err := s.repo.GetByID(ctx, id)
 	if err != nil {
-		return domain.Organization{}, fmt.Errorf("organization not found: %w", err)
+		return nil, domain.NewDomainError("organization not found", domain.ErrOrgNotFound)
 	}
 
-	// Preserve immutable fields
-	org.Type = existing.Type
-	org.Country = existing.Country
-	org.TaxID = existing.TaxID
-	org.LicenseNumber = existing.LicenseNumber
-	org.EstablishmentID = existing.EstablishmentID
-	org.CreatedAt = existing.CreatedAt
-
-	// Domain validation
-	if err := org.Validate(); err != nil {
-		return domain.Organization{}, err
+	// Check code uniqueness if changed
+	if req.Code != "" && domain.StringValue(existingOrg.Code) != req.Code {
+		existing, _ := s.repo.GetByCode(ctx, req.Code)
+		if existing != nil && existing.ID != id {
+			return nil, domain.NewDomainError("organization with this code already exists", domain.ErrOrgAlreadyExists)
+		}
 	}
 
-	// Business rule: Check for duplicate name (excluding current org)
-	exists, err := s.repo.ExistsWithName(ctx, org.Name, &org.ID)
+	// Update fields using helper functions
+	existingOrg.Name = req.Name
+	existingOrg.Code = domain.StringPtr(req.Code)
+	existingOrg.DisplayName = domain.StringPtr(req.DisplayName)
+	existingOrg.Type = domain.OrganizationType(req.Type)
+	existingOrg.Country = req.Country
+	existingOrg.Emirate = domain.EmiratePtr(req.Emirate)
+	existingOrg.Area = domain.StringPtr(req.Area)
+	existingOrg.Address = domain.StringPtr(req.Address)
+	existingOrg.City = domain.StringPtr(req.City)
+	existingOrg.State = domain.StringPtr(req.State)
+	existingOrg.PostalCode = domain.StringPtr(req.PostalCode)
+	existingOrg.Phone = domain.StringPtr(req.Phone)
+	existingOrg.Email = domain.StringPtr(req.Email)
+	existingOrg.Website = domain.StringPtr(req.Website)
+	existingOrg.Currency = req.Currency
+	existingOrg.TaxID = domain.StringPtr(req.TaxID)
+	existingOrg.LicenseNumber = domain.StringPtr(req.LicenseNumber)
+	existingOrg.EstablishmentID = domain.StringPtr(req.EstablishmentID)
+	existingOrg.Description = domain.StringPtr(req.Description)
+	existingOrg.UpdatedAt = time.Now()
+
+	// Validate
+	if err := existingOrg.Validate(); err != nil {
+		return nil, err
+	}
+
+	// Update in database
+	if err := s.repo.Update(ctx, existingOrg); err != nil {
+		return nil, err
+	}
+
+	return dto.ToOrganizationResponse(existingOrg), nil
+}
+
+// ActivateOrganization activates an organization
+func (s *OrganizationService) ActivateOrganization(ctx context.Context, id uuid.UUID) error {
+	org, err := s.repo.GetByID(ctx, id)
 	if err != nil {
-		return domain.Organization{}, fmt.Errorf("failed to check organization name: %w", err)
-	}
-	if exists {
-		return domain.Organization{}, domain.NewDomainError(
-			fmt.Sprintf("organization with name '%s' already exists", org.Name),
-			domain.ErrOrgAlreadyExists,
-		)
+		return domain.NewDomainError("organization not found", domain.ErrOrgNotFound)
 	}
 
-	// Update organization
-	updated, err := s.repo.UpdateOrganization(ctx, org)
-	if err != nil {
-		return domain.Organization{}, fmt.Errorf("failed to update organization: %w", err)
+	if org.IsActive {
+		return domain.NewDomainError("organization is already active", domain.ErrOrgAlreadyActive)
 	}
 
-	return updated, nil
+	return s.repo.ActivateOrganization(ctx, id)
 }
 
 // DeactivateOrganization deactivates an organization
 func (s *OrganizationService) DeactivateOrganization(ctx context.Context, id uuid.UUID) error {
-	if id == uuid.Nil {
-		return domain.NewDomainError("organization ID is required", domain.ErrOrgNotFound)
-	}
-
-	// Verify organization exists
-	_, err := s.repo.GetOrganizationByID(ctx, id)
+	org, err := s.repo.GetByID(ctx, id)
 	if err != nil {
-		return fmt.Errorf("organization not found: %w", err)
+		return domain.NewDomainError("organization not found", domain.ErrOrgNotFound)
 	}
 
-	// TODO: Add business rule checks
-	// - Can't deactivate if there are active accounts
-	// - Can't deactivate if there are pending transactions
-	// - etc.
-
-	if err := s.repo.DeactivateOrganization(ctx, id); err != nil {
-		return fmt.Errorf("failed to deactivate organization: %w", err)
+	if !org.IsActive {
+		return domain.NewDomainError("organization is already inactive", domain.ErrOrgAlreadyInactive)
 	}
 
-	return nil
-}
-
-// ActivateOrganization reactivates an organization
-func (s *OrganizationService) ActivateOrganization(ctx context.Context, id uuid.UUID) error {
-	if id == uuid.Nil {
-		return domain.NewDomainError("organization ID is required", domain.ErrOrgNotFound)
-	}
-
-	// Verify organization exists
-	_, err := s.repo.GetOrganizationByID(ctx, id)
-	if err != nil {
-		return fmt.Errorf("organization not found: %w", err)
-	}
-
-	if err := s.repo.ActivateOrganization(ctx, id); err != nil {
-		return fmt.Errorf("failed to activate organization: %w", err)
-	}
-
-	return nil
+	return s.repo.DeactivateOrganization(ctx, id)
 }
 
 // GetOrganizationStats returns statistics about organizations
-func (s *OrganizationService) GetOrganizationStats(ctx context.Context) (*OrganizationStats, error) {
-	stats := &OrganizationStats{
-		ByType:    make(map[domain.OrganizationType]int),
-		ByEmirate: make(map[domain.UAEmirate]int),
-	}
-
-	// Get all active organizations
-	activeFilters := repository.DefaultFilters().WithActive(true)
-	activeOrgs, err := s.repo.ListOrganizations(ctx, activeFilters)
+func (s *OrganizationService) GetOrganizationStats(ctx context.Context) (*dto.OrganizationStatsResponse, error) {
+	totalCount, err := s.repo.Count(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get active organizations: %w", err)
+		return nil, err
 	}
-	stats.ActiveOrganizations = len(activeOrgs)
 
-	// Get all inactive organizations
-	inactiveFilters := repository.DefaultFilters().WithActive(false)
-	inactiveOrgs, err := s.repo.ListOrganizations(ctx, inactiveFilters)
+	healthcareCount, _ := s.repo.CountByType(ctx, domain.OrganizationTypeHealthcare)
+
+	// Get all organizations for emirate counting
+	orgs, _ := s.repo.List(ctx, 1000, 0)
+
+	typeMap := make(map[string]int)
+	emirateMap := make(map[string]int)
+
+	for _, org := range orgs {
+		// Count by type
+		typeMap[string(org.Type)]++
+
+		// Count by emirate
+		if org.Emirate != nil {
+			emirateMap[string(*org.Emirate)]++
+		}
+	}
+
+	return &dto.OrganizationStatsResponse{
+		TotalOrganizations:      totalCount,
+		ActiveOrganizations:     totalCount,
+		HealthcareOrganizations: healthcareCount,
+		OrganizationsByType:     typeMap,
+		OrganizationsByEmirate:  emirateMap,
+	}, nil
+}
+
+// GetOrganizationsByType retrieves organizations by type
+func (s *OrganizationService) GetOrganizationsByType(ctx context.Context, orgType domain.OrganizationType) ([]*dto.OrganizationResponse, error) {
+	orgs, err := s.repo.List(ctx, 1000, 0)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get inactive organizations: %w", err)
-	}
-	stats.InactiveOrganizations = len(inactiveOrgs)
-
-	stats.TotalOrganizations = stats.ActiveOrganizations + stats.InactiveOrganizations
-
-	// Count by type
-	orgTypes := []domain.OrganizationType{
-		domain.OrganizationTypeHealthcare,
-		domain.OrganizationTypeRetail,
-		domain.OrganizationTypeManufacturing,
-		domain.OrganizationTypeFinance,
-		domain.OrganizationTypeEducation,
-		domain.OrganizationTypeHospitality,
-		domain.OrganizationTypeLogistics,
-		domain.OrganizationTypeRealEstate,
-		domain.OrganizationTypeService,
-		domain.OrganizationTypeOther,
+		return nil, err
 	}
 
-	for _, orgType := range orgTypes {
-		count, err := s.repo.CountByType(ctx, orgType)
-		if err != nil {
-			return nil, fmt.Errorf("failed to count by type: %w", err)
-		}
-		if count > 0 {
-			stats.ByType[orgType] = count
+	var filtered []*domain.Organization
+	for _, org := range orgs {
+		if org.Type == orgType {
+			filtered = append(filtered, org)
 		}
 	}
 
-	// Count by emirate (healthcare only)
-	emirates := []domain.UAEmirate{
-		domain.EmirateAbuDhabi,
-		domain.EmirateDubai,
-		domain.EmirateSharjah,
-		domain.EmirateRasAlKhaimah,
-		domain.EmirateUmAlQuwain,
-		domain.EmirateFujairah,
-		domain.EmirateAjman,
+	return dto.ToOrganizationListResponse(filtered), nil
+}
+
+// GetOrganizationsByEmirate retrieves organizations by emirate
+func (s *OrganizationService) GetOrganizationsByEmirate(ctx context.Context, emirate domain.UAEmirate) ([]*dto.OrganizationResponse, error) {
+	orgs, err := s.repo.List(ctx, 1000, 0)
+	if err != nil {
+		return nil, err
 	}
 
-	for _, emirate := range emirates {
-		count, err := s.repo.CountByEmirate(ctx, emirate)
-		if err != nil {
-			return nil, fmt.Errorf("failed to count by emirate: %w", err)
-		}
-		if count > 0 {
-			stats.ByEmirate[emirate] = count
+	var filtered []*domain.Organization
+	for _, org := range orgs {
+		if org.Emirate != nil && *org.Emirate == emirate {
+			filtered = append(filtered, org)
 		}
 	}
 
-	return stats, nil
+	return dto.ToOrganizationListResponse(filtered), nil
 }

@@ -63,16 +63,20 @@ func (s *Seeder) SeedOrganizationsFromExcel(ctx context.Context, filePath string
 
 		// Create domain object for validation
 		org := &domain.Organization{
-			ID:              uuid.New(), // Temporary ID for validation
 			Name:            strings.TrimSpace(row[0]),
 			Type:            domain.OrganizationType(strings.ToUpper(strings.TrimSpace(row[1]))),
-			Country:         strings.ToUpper(strings.TrimSpace(row[2])),
-			Emirate:         domain.UAEmirate(strings.ToUpper(strings.TrimSpace(row[3]))),
-			Area:            strings.TrimSpace(row[4]),
-			Currency:        strings.ToUpper(strings.TrimSpace(row[5])),
-			LicenseNumber:   strings.TrimSpace(row[6]),
-			EstablishmentID: strings.TrimSpace(row[7]),
-			Description:     getColumnOrDefault(row, 8, ""),
+			Country:         strings.TrimSpace(row[2]),
+			Emirate:         domain.EmiratePtr(strings.TrimSpace(row[3])),
+			Area:            domain.StringPtr(strings.TrimSpace(row[4])),
+			Address:         domain.StringPtr(strings.TrimSpace(row[5])),
+			Phone:           domain.StringPtr(strings.TrimSpace(row[6])),
+			Email:           domain.StringPtr(strings.TrimSpace(row[7])),
+			Website:         domain.StringPtr(getColumnOrDefault(row, 8, "")),
+			Currency:        strings.TrimSpace(row[9]),
+			TaxID:           domain.StringPtr(getColumnOrDefault(row, 10, "")),
+			LicenseNumber:   domain.StringPtr(getColumnOrDefault(row, 11, "")),
+			EstablishmentID: domain.StringPtr(getColumnOrDefault(row, 12, "")),
+			Description:     domain.StringPtr(getColumnOrDefault(row, 13, "")),
 			IsActive:        isActive,
 		}
 

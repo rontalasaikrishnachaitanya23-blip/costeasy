@@ -1,4 +1,3 @@
-// backend/settings/internal/domain/organization.go (Updated Validate method)
 package domain
 
 import (
@@ -23,6 +22,16 @@ const (
 	OrganizationTypeOther         OrganizationType = "OTHER"
 )
 
+// MFAMethod defines available MFA methods
+type MFAMethod string
+
+const (
+	MFAMethodNone  MFAMethod = "none"
+	MFAMethodSMS   MFAMethod = "sms"
+	MFAMethodEmail MFAMethod = "email"
+	MFAMethodTOTP  MFAMethod = "totp"
+)
+
 // UAEmirate defines UAE emirates
 type UAEmirate string
 
@@ -36,22 +45,53 @@ const (
 	EmirateAjman        UAEmirate = "AJMAN"
 )
 
-// Organization represents a business organization
+// Organization represents a business organization (UNIFIED MODEL)
 type Organization struct {
-	ID              uuid.UUID        `json:"id"`
-	Name            string           `json:"name"`
-	Type            OrganizationType `json:"type"`
-	Country         string           `json:"country"`
-	Emirate         UAEmirate        `json:"emirate"`
-	Area            string           `json:"area"`
-	Currency        string           `json:"currency"`
-	TaxID           string           `json:"tax_id"`
-	LicenseNumber   string           `json:"license_number"`
-	EstablishmentID string           `json:"establishment_id"`
-	Description     string           `json:"description"`
-	IsActive        bool             `json:"is_active"`
-	CreatedAt       time.Time        `json:"created_at"`
-	UpdatedAt       time.Time        `json:"updated_at"`
+	ID          uuid.UUID        `json:"id"`
+	Name        string           `json:"name"`
+	Code        *string          `json:"code"`
+	DisplayName *string          `json:"display_name"`
+	Type        OrganizationType `json:"type"` // Required
+
+	// Location
+	Country    string     `json:"country"` // Required
+	Emirate    *UAEmirate `json:"emirate"` // Optional (required only for UAE)
+	Area       *string    `json:"area"`
+	Address    *string    `json:"address"`
+	City       *string    `json:"city"`
+	State      *string    `json:"state"`
+	PostalCode *string    `json:"postal_code"`
+
+	// Contact
+	Phone   *string `json:"phone"`
+	Email   *string `json:"email"`
+	Website *string `json:"website"`
+
+	// Business
+	Currency        string     `json:"currency"` // Required
+	TaxID           *string    `json:"tax_id"`
+	LicenseNumber   *string    `json:"license_number"`
+	LicenseExpiry   *time.Time `json:"license_expiry"`
+	EstablishmentID *string    `json:"establishment_id"`
+	Description     *string    `json:"description"`
+	IsActive        bool       `json:"is_active"`
+
+	// IP Whitelist
+	IPWhitelistEnabled bool     `json:"ip_whitelist_enabled"`
+	AllowedIPs         []string `json:"allowed_ips"`
+	AllowedIPRanges    []string `json:"allowed_ip_ranges"`
+
+	// MFA Configuration
+	MFAEnabled        bool        `json:"mfa_enabled"`
+	MFAEnforced       bool        `json:"mfa_enforced"`
+	MFAMethod         MFAMethod   `json:"mfa_method"`
+	AllowedMFAMethods []MFAMethod `json:"allowed_mfa_methods"`
+
+	// Metadata
+	CreatedAt time.Time  `json:"created_at"`
+	UpdatedAt time.Time  `json:"updated_at"`
+	CreatedBy *uuid.UUID `json:"created_by,omitempty"`
+	UpdatedBy *uuid.UUID `json:"updated_by,omitempty"`
 }
 
 // Validate performs domain validation on Organization
@@ -78,12 +118,12 @@ func (o *Organization) Validate() *DomainError {
 		return NewDomainErrorf(ErrOrgTypeInvalid, "invalid organization type: %s", o.Type)
 	}
 
-	// Country validation
+	// Country validation (REQUIRED)
 	if o.Country == "" {
 		return NewDomainError("country is required", ErrOrgCountryRequired)
 	}
 
-	// Currency validation
+	// Currency validation (REQUIRED)
 	if o.Currency == "" {
 		return NewDomainError("currency is required", ErrOrgCurrencyRequired)
 	}
@@ -92,8 +132,19 @@ func (o *Organization) Validate() *DomainError {
 		return NewDomainErrorf(ErrOrgCurrencyInvalid, "invalid currency code: %s", o.Currency)
 	}
 
+	// UAE-specific validation
+	if o.IsInUAE() {
+		if o.Emirate == nil || *o.Emirate == "" {
+			return NewDomainError("emirate is required for UAE organizations", ErrOrgEmirateRequired)
+		}
+
+		if !isValidEmirate(*o.Emirate) {
+			return NewDomainErrorf(ErrOrgEmirateInvalid, "invalid emirate: %s", *o.Emirate)
+		}
+	}
+
 	// Healthcare-specific validations
-	if o.Type == OrganizationTypeHealthcare {
+	if o.IsHealthcare() {
 		if err := o.validateHealthcare(); err != nil {
 			return err
 		}
@@ -104,20 +155,17 @@ func (o *Organization) Validate() *DomainError {
 
 // validateHealthcare performs healthcare-specific validation
 func (o *Organization) validateHealthcare() *DomainError {
-	if o.Emirate == "" {
-		return NewDomainError("emirate is required for healthcare organizations", ErrOrgEmirateRequired)
-	}
-
-	if !isValidEmirate(o.Emirate) {
-		return NewDomainErrorf(ErrOrgEmirateInvalid, "invalid emirate: %s", o.Emirate)
-	}
-
-	if o.LicenseNumber == "" {
+	if o.LicenseNumber == nil || *o.LicenseNumber == "" {
 		return NewDomainError("license number is required for healthcare organizations", ErrOrgLicenseRequired)
 	}
 
-	if o.EstablishmentID == "" {
+	if o.EstablishmentID == nil || *o.EstablishmentID == "" {
 		return NewDomainError("establishment ID (Shafafiya provider code) is required for healthcare organizations", ErrOrgEstablishmentIDReq)
+	}
+
+	// For UAE healthcare, emirate validation is already done in main Validate()
+	if o.IsInUAE() && (o.Emirate == nil || *o.Emirate == "") {
+		return NewDomainError("emirate is required for healthcare organizations in UAE", ErrOrgEmirateRequired)
 	}
 
 	return nil
@@ -130,7 +178,27 @@ func (o *Organization) IsHealthcare() bool {
 
 // IsInAbuDhabi returns true if organization is in Abu Dhabi emirate
 func (o *Organization) IsInAbuDhabi() bool {
-	return o.Emirate == EmirateAbuDhabi
+	return o.Emirate != nil && *o.Emirate == EmirateAbuDhabi
+}
+
+// IsInUAE returns true if organization is in UAE
+func (o *Organization) IsInUAE() bool {
+	return o.Country == "UAE"
+}
+
+// IsInDubai returns true if organization is in Dubai emirate
+func (o *Organization) IsInDubai() bool {
+	return o.Emirate != nil && *o.Emirate == EmirateDubai
+}
+
+// RequiresMFA returns true if MFA is enforced for this organization
+func (o *Organization) RequiresMFA() bool {
+	return o.MFAEnabled && o.MFAEnforced
+}
+
+// HasIPWhitelist returns true if IP whitelist is enabled
+func (o *Organization) HasIPWhitelist() bool {
+	return o.IPWhitelistEnabled && (len(o.AllowedIPs) > 0 || len(o.AllowedIPRanges) > 0)
 }
 
 // Helper functions
