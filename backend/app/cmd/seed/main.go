@@ -28,27 +28,195 @@ func main() {
 
 	log.Println("Connected to database")
 
-	// Seed organizations
+	// Seed in order
 	if err := seedOrganizations(ctx, dbPool); err != nil {
 		log.Fatalf("Failed to seed organizations: %v", err)
 	}
 
-	// Seed users
 	if err := seedUsers(ctx, dbPool); err != nil {
 		log.Fatalf("Failed to seed users: %v", err)
 	}
 
-	// Seed roles
 	if err := seedRoles(ctx, dbPool); err != nil {
 		log.Fatalf("Failed to seed roles: %v", err)
 	}
 
-	// Seed permissions
 	if err := seedPermissions(ctx, dbPool); err != nil {
 		log.Fatalf("Failed to seed permissions: %v", err)
 	}
 
+	if err := seedRolePermissions(ctx, dbPool); err != nil {
+		log.Fatalf("Failed to seed role permissions: %v", err)
+	}
+
+	if err := seedGLAccounts(ctx, dbPool); err != nil {
+		log.Fatalf("Failed to seed GL accounts: %v", err)
+	}
+
+	if err := seedShafafiyaSettings(ctx, dbPool); err != nil {
+		log.Fatalf("Failed to seed Shafafiya settings: %v", err)
+	}
+
 	log.Println("✓ Database seeding completed successfully")
+	log.Println("\n📝 Default Credentials:")
+	log.Println("   Username: admin")
+	log.Println("   Password: password123")
+}
+func seedShafafiyaSettings(ctx context.Context, db *pgxpool.Pool) error {
+	log.Println("Seeding Shafafiya settings...")
+
+	// Create healthcare organization in Abu Dhabi
+	healthcareOrgID := uuid.MustParse("00000000-0000-0000-0000-000000000002")
+
+	orgQuery := `
+        INSERT INTO organizations (
+            id, name, display_name, email, phone, address, city, 
+            state, country, postal_code, is_active
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+        ON CONFLICT (id) DO NOTHING
+    `
+
+	_, err := db.Exec(ctx, orgQuery,
+		healthcareOrgID,
+		"Abu Dhabi Health Clinic",
+		"Abu Dhabi Health Clinic LLC",
+		"contact@adhealthclinic.ae",
+		"+971-2-1234567",
+		"Corniche Road, Building 23",
+		"Abu Dhabi",
+		"Abu Dhabi",
+		"UAE",
+		"12345",
+		true,
+	)
+	if err != nil {
+		return err
+	}
+
+	// Add Shafafiya settings
+	shafafiyaQuery := `
+        INSERT INTO shafafiya_org_settings (
+            id, organization_id, username, password_encrypted, provider_code,
+            default_currency_code, default_language, include_sensitive_data,
+            costing_method, allocation_method, created_at, updated_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+        ON CONFLICT (organization_id) DO NOTHING
+    `
+
+	// Note: Use actual crypto service in production
+	_, err = db.Exec(ctx, shafafiyaQuery,
+		uuid.New(),
+		healthcareOrgID,
+		"demo_clinic_user",
+		"ENCRYPTED_PASSWORD_PLACEHOLDER", // Replace with actual encrypted password
+		"PROV001",
+		"AED",
+		"en",
+		true,
+		"departmental",
+		"weighted",
+		time.Now(),
+		time.Now(),
+	)
+	if err != nil {
+		return err
+	}
+
+	log.Println("✓ Shafafiya settings seeded")
+	return nil
+}
+
+func seedRolePermissions(ctx context.Context, db *pgxpool.Pool) error {
+	log.Println("Seeding role permissions...")
+
+	adminRoleID := uuid.MustParse("00000000-0000-0000-0000-000000000020")
+
+	// Get all permissions
+	permQuery := `SELECT id FROM permissions`
+	rows, err := db.Query(ctx, permQuery)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	var permissionIDs []uuid.UUID
+	for rows.Next() {
+		var permID uuid.UUID
+		if err := rows.Scan(&permID); err != nil {
+			return err
+		}
+		permissionIDs = append(permissionIDs, permID)
+	}
+
+	// Assign all permissions to admin role
+	rolePermQuery := `
+        INSERT INTO role_permissions (role_id, permission_id)
+        VALUES ($1, $2)
+        ON CONFLICT (role_id, permission_id) DO NOTHING
+    `
+
+	for _, permID := range permissionIDs {
+		_, err := db.Exec(ctx, rolePermQuery, adminRoleID, permID)
+		if err != nil {
+			return err
+		}
+	}
+
+	log.Println("✓ Role permissions seeded")
+	return nil
+}
+func seedGLAccounts(ctx context.Context, db *pgxpool.Pool) error {
+	log.Println("Seeding GL accounts...")
+
+	accounts := []struct {
+		code               string
+		name               string
+		accType            string
+		parentCode         *string
+		costCenterRequired bool
+	}{
+		{"AST-1000", "Cash", "ASSET", nil, false},
+		{"AST-1100", "Accounts Receivable", "ASSET", nil, false},
+		{"AST-1200", "Inventory", "ASSET", nil, true},
+		{"LIA-2000", "Accounts Payable", "LIABILITY", nil, false},
+		{"LIA-2100", "Accrued Expenses", "LIABILITY", nil, false},
+		{"EQU-3000", "Capital", "EQUITY", nil, false},
+		{"EQU-3100", "Retained Earnings", "EQUITY", nil, false},
+		{"REV-4000", "Sales Revenue", "REVENUE", nil, false},
+		{"REV-4100", "Service Revenue", "REVENUE", nil, false},
+		{"EXP-5000", "Cost of Goods Sold", "EXPENSE", nil, true},
+		{"EXP-6000", "Salaries Expense", "EXPENSE", nil, false},
+		{"EXP-6100", "Rent Expense", "EXPENSE", nil, false},
+		{"EXP-6200", "Utilities Expense", "EXPENSE", nil, false},
+	}
+
+	query := `
+        INSERT INTO gl_accounts (
+            id, code, name, type, parent_code, cost_center_required,
+            is_active, created_at, updated_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        ON CONFLICT (code) DO NOTHING
+    `
+
+	for _, acc := range accounts {
+		_, err := db.Exec(ctx, query,
+			uuid.New(),
+			acc.code,
+			acc.name,
+			acc.accType,
+			acc.parentCode,
+			acc.costCenterRequired,
+			true,
+			time.Now(),
+			time.Now(),
+		)
+		if err != nil {
+			return err
+		}
+	}
+
+	log.Println("✓ GL accounts seeded")
+	return nil
 }
 
 func seedOrganizations(ctx context.Context, db *pgxpool.Pool) error {
