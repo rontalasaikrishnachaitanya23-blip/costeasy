@@ -5,6 +5,7 @@ import (
 	"context"
 	"flag"
 	"log"
+	"os"
 
 	"github.com/joho/godotenv"
 
@@ -15,13 +16,17 @@ import (
 
 func main() {
 	// Load .env file
-	if err := godotenv.Load(); err != nil {
-		log.Printf("Warning: Could not load .env file: %v", err)
-	}
+	_ = godotenv.Load()
 
 	command := flag.String("command", "up", "Command: up, down, version")
 	steps := flag.Int("steps", 1, "Number of steps for rollback")
+	path := flag.String("path", "database/migrations", "Relative path to migrations folder")
 	flag.Parse()
+
+	// Allow override via env if needed
+	if envPath := os.Getenv("MIGRATIONS_PATH"); envPath != "" {
+		*path = envPath
+	}
 
 	// Load configuration
 	cfg := config.LoadConfig()
@@ -33,22 +38,21 @@ func main() {
 	}
 	defer pool.Close()
 
-	// Create migrator
-	m := migrator.NewMigrator(pool, "database/migrations")
+	// Create migrator using provided path
+	m := migrator.NewMigrator(pool, *path)
 
 	ctx := context.Background()
 
-	// Execute command
 	switch *command {
 	case "up":
-		log.Println("Running migrations up...")
+		log.Printf("Running migrations up (path=%s)...", *path)
 		if err := m.Up(ctx); err != nil {
 			log.Fatalf("Migration up failed: %v", err)
 		}
 		log.Println("✓ Migrations completed successfully")
 
 	case "down":
-		log.Printf("Rolling back %d migration(s)...\n", *steps)
+		log.Printf("Rolling back %d migration(s) (path=%s)...", *steps, *path)
 		if err := m.Down(ctx, *steps); err != nil {
 			log.Fatalf("Migration down failed: %v", err)
 		}

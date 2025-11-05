@@ -15,10 +15,7 @@ import (
 func main() {
 	log.Println("Starting database seeding...")
 
-	// Load configuration
 	cfg := config.LoadConfig()
-
-	// Connect to database
 	ctx := context.Background()
 	dbPool, err := pgxpool.New(ctx, cfg.DatabaseURL)
 	if err != nil {
