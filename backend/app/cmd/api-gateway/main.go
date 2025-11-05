@@ -4,6 +4,7 @@ import (
 	"log"
 
 	"github.com/chaitu35/costeasy/backend/app/config"
+	"github.com/chaitu35/costeasy/backend/app/middleware"
 	"github.com/chaitu35/costeasy/backend/database"
 
 	// GL-Core imports
@@ -11,13 +12,22 @@ import (
 	glRepo "github.com/chaitu35/costeasy/backend/internal/gl-core/repository"
 	glRoutes "github.com/chaitu35/costeasy/backend/internal/gl-core/routes"
 	glService "github.com/chaitu35/costeasy/backend/internal/gl-core/service"
-	settingsRepo "github.com/chaitu35/costeasy/backend/internal/settings/repository"
 
+	// Settings imports
 	settingsHandler "github.com/chaitu35/costeasy/backend/internal/settings/handler"
+	settingsRepo "github.com/chaitu35/costeasy/backend/internal/settings/repository"
+	settingsRoutes "github.com/chaitu35/costeasy/backend/internal/settings/routes"
 	settingsService "github.com/chaitu35/costeasy/backend/internal/settings/service"
 
-	settingsRoutes "github.com/chaitu35/costeasy/backend/internal/settings/routes"
+	// Auth imports
+	authHandler "github.com/chaitu35/costeasy/backend/internal/auth/handler"
+	authRepo "github.com/chaitu35/costeasy/backend/internal/auth/repository"
+	authRoutes "github.com/chaitu35/costeasy/backend/internal/auth/routes"
+	authService "github.com/chaitu35/costeasy/backend/internal/auth/service"
+
+	// Pkg imports
 	"github.com/chaitu35/costeasy/backend/pkg/crypto"
+	"github.com/chaitu35/costeasy/backend/pkg/jwt"
 
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
@@ -39,6 +49,14 @@ func main() {
 	}
 	defer pool.Close()
 
+	// Initialize JWT util
+	jwtUtil := jwt.NewJWTUtil(
+		cfg.JWTSecret,
+
+		cfg.JWTAccessExpiry,
+		cfg.JWTRefreshExpiry,
+	)
+
 	// Set Gin mode based on environment
 	if cfg.LogLevel == "debug" {
 		gin.SetMode(gin.DebugMode)
@@ -57,10 +75,14 @@ func main() {
 	// API v1 group
 	v1 := router.Group("/api/v1")
 	{
+		// Auth module (must be first)
+		setupAuthRoutes(v1, pool, jwtUtil)
+
 		// GL module
 		setupGLRoutes(v1, pool)
-		setupSettingsRoutes(v1, pool, cfg)
 
+		// Settings module
+		setupSettingsRoutes(v1, pool, cfg)
 	}
 
 	// Start server
@@ -70,6 +92,27 @@ func main() {
 	if err := router.Run(addr); err != nil {
 		log.Fatalf("Failed to start server: %v", err)
 	}
+}
+
+// setupAuthRoutes initializes all Auth routes
+func setupAuthRoutes(v1 *gin.RouterGroup, pool database.Pool, jwtUtil *jwt.JWTUtil) {
+	// Initialize repositories
+	userRepo := authRepo.NewUserRepository(pool)
+	roleRepo := authRepo.NewRoleRepository(pool)
+	permRepo := authRepo.NewPermissionRepository(pool)
+	refreshTokenRepo := authRepo.NewRefreshTokenRepository(pool)
+
+	// Initialize service
+	authSvc := authService.NewAuthService(userRepo, roleRepo, permRepo, refreshTokenRepo, jwtUtil)
+
+	// Initialize handler
+	handler := authHandler.NewAuthHandler(authSvc)
+
+	// Initialize middleware
+	authMiddleware := middleware.NewAuthMiddleware(jwtUtil, authSvc)
+
+	// Register routes
+	authRoutes.RegisterAuthRoutes(v1, handler, authMiddleware)
 }
 
 // setupGLRoutes initializes all GL-Core routes
