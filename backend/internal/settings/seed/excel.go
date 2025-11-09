@@ -1,4 +1,3 @@
-// backend/internal/settings/seed/excel.go
 package seed
 
 import (
@@ -12,19 +11,28 @@ import (
 	"github.com/xuri/excelize/v2"
 	"golang.org/x/crypto/bcrypt"
 
-	"github.com/chaitu35/costeasy/backend/internal/settings/domain" // Update with your actual module path
+	"github.com/chaitu35/costeasy/backend/internal/settings/domain"
 )
 
+// Seeder loads settings (organizations, accounts, shafafiya) from Excel files.
+// This file contains safer helpers (nil handling, header validation) and clearer logging.
 type Seeder struct {
 	pool *pgxpool.Pool
 }
 
-// NewSeeder creates a new Seeder instance
+func nilIfEmptyEmiratePtr(e *domain.UAEmirate) interface{} {
+	if e == nil || strings.TrimSpace(string(*e)) == "" {
+		return nil
+	}
+	return string(*e)
+}
+
 func NewSeeder(pool *pgxpool.Pool) *Seeder {
 	return &Seeder{pool: pool}
 }
 
-// SeedOrganizationsFromExcel loads organizations from Excel file with domain validation
+// ==================== Organizations ====================
+
 func (s *Seeder) SeedOrganizationsFromExcel(ctx context.Context, filePath string) error {
 	log.Printf("Loading organizations from Excel: %s", filePath)
 
@@ -57,7 +65,7 @@ func (s *Seeder) SeedOrganizationsFromExcel(ctx context.Context, filePath string
 
 		// Parse isActive
 		isActive := true
-		if len(row) > 9 && strings.ToLower(strings.TrimSpace(row[9])) == "false" {
+		if len(row) > 9 && strings.EqualFold(strings.TrimSpace(row[9]), "false") {
 			isActive = false
 		}
 
@@ -72,7 +80,7 @@ func (s *Seeder) SeedOrganizationsFromExcel(ctx context.Context, filePath string
 			Phone:           domain.StringPtr(strings.TrimSpace(row[6])),
 			Email:           domain.StringPtr(strings.TrimSpace(row[7])),
 			Website:         domain.StringPtr(getColumnOrDefault(row, 8, "")),
-			Currency:        strings.TrimSpace(row[9]),
+			Currency:        strings.TrimSpace(getColumnOrDefault(row, 9, "AED")),
 			TaxID:           domain.StringPtr(getColumnOrDefault(row, 10, "")),
 			LicenseNumber:   domain.StringPtr(getColumnOrDefault(row, 11, "")),
 			EstablishmentID: domain.StringPtr(getColumnOrDefault(row, 12, "")),
@@ -103,12 +111,12 @@ func (s *Seeder) SeedOrganizationsFromExcel(ctx context.Context, filePath string
 			org.Name,
 			org.Type,
 			org.Country,
-			org.Emirate,
-			org.Area,
+			nilIfEmptyEmiratePtr(org.Emirate),
+			nilIfEmptyStrPtr(org.Area),
 			org.Currency,
-			org.LicenseNumber,
-			org.EstablishmentID,
-			org.Description,
+			nilIfEmptyStrPtr(org.LicenseNumber),
+			nilIfEmptyStrPtr(org.EstablishmentID),
+			nilIfEmptyStrPtr(org.Description),
 			org.IsActive,
 		)
 
@@ -118,7 +126,7 @@ func (s *Seeder) SeedOrganizationsFromExcel(ctx context.Context, filePath string
 			continue
 		}
 
-		log.Printf("✓ Inserted organization: %s (Establishment ID: %s)", org.Name, org.EstablishmentID)
+		log.Printf("✓ Inserted organization: %s (Establishment ID: %s)", org.Name, safeDeref(org.EstablishmentID))
 		count++
 	}
 
@@ -126,7 +134,8 @@ func (s *Seeder) SeedOrganizationsFromExcel(ctx context.Context, filePath string
 	return nil
 }
 
-// SeedAccountsFromExcel loads accounts with account type validation
+// ==================== Accounts ====================
+
 func (s *Seeder) SeedAccountsFromExcel(ctx context.Context, filePath, orgID string) error {
 	log.Printf("Loading accounts from Excel: %s for organization: %s", filePath, orgID)
 
@@ -159,7 +168,7 @@ func (s *Seeder) SeedAccountsFromExcel(ctx context.Context, filePath, orgID stri
 
 		// Parse isActive
 		isActive := true
-		if len(row) > 4 && strings.ToLower(strings.TrimSpace(row[4])) == "false" {
+		if len(row) > 4 && strings.EqualFold(strings.TrimSpace(row[4]), "false") {
 			isActive = false
 		}
 
@@ -192,12 +201,20 @@ func (s *Seeder) SeedAccountsFromExcel(ctx context.Context, filePath, orgID stri
                 updated_at = NOW()
         `
 
+		desc := getColumnOrDefault(row, 3, "")
+		var descArg interface{}
+		if strings.TrimSpace(desc) == "" {
+			descArg = nil
+		} else {
+			descArg = desc
+		}
+
 		_, err := s.pool.Exec(ctx, query,
 			orgID,
 			code,
 			name,
 			accountType,
-			getColumnOrDefault(row, 3, ""),
+			descArg,
 			isActive,
 		)
 
@@ -215,7 +232,8 @@ func (s *Seeder) SeedAccountsFromExcel(ctx context.Context, filePath, orgID stri
 	return nil
 }
 
-// SeedShafafiyaFromExcel loads Shafafiya settings with domain validation and password encryption
+// ==================== Shafafiya ====================
+
 func (s *Seeder) SeedShafafiyaFromExcel(ctx context.Context, filePath string) error {
 	log.Printf("Loading Shafafiya settings from Excel: %s", filePath)
 
@@ -271,7 +289,7 @@ func (s *Seeder) SeedShafafiyaFromExcel(ctx context.Context, filePath string) er
 
 		// Parse includeSensitive
 		includeSensitive := false
-		if len(row) > 6 && strings.ToLower(strings.TrimSpace(row[6])) == "true" {
+		if len(row) > 6 && strings.EqualFold(strings.TrimSpace(row[6]), "true") {
 			includeSensitive = true
 		}
 
@@ -305,10 +323,10 @@ func (s *Seeder) SeedShafafiyaFromExcel(ctx context.Context, filePath string) er
 			continue
 		}
 
-		// Encrypt password
-		encryptedPassword, err := encryptPassword(password)
+		// Hash password with bcrypt
+		hashed, err := encryptPassword(password)
 		if err != nil {
-			log.Printf("⚠️  Failed to encrypt password at row %d: %v", rowNum, err)
+			log.Printf("⚠️  Failed to hash password at row %d: %v", rowNum, err)
 			skipped++
 			continue
 		}
@@ -335,7 +353,7 @@ func (s *Seeder) SeedShafafiyaFromExcel(ctx context.Context, filePath string) er
 		_, err = s.pool.Exec(ctx, query,
 			settings.OrganizationID,
 			settings.Username,
-			encryptedPassword,
+			hashed,
 			settings.ProviderCode,
 			settings.DefaultCurrencyCode,
 			settings.DefaultLanguage,
@@ -358,7 +376,8 @@ func (s *Seeder) SeedShafafiyaFromExcel(ctx context.Context, filePath string) er
 	return nil
 }
 
-// SeedAllFromExcel performs complete seeding from a single Excel file
+// ==================== Complete & Templates ====================
+
 func (s *Seeder) SeedAllFromExcel(ctx context.Context, filePath string) error {
 	log.Printf("Starting complete seed from Excel: %s", filePath)
 
@@ -388,12 +407,8 @@ func (s *Seeder) SeedAllFromExcel(ctx context.Context, filePath string) error {
 
 	log.Printf("Found %d organizations for account seeding", orgCount)
 
-	// Step 3: Seed accounts for each organization
-	// Note: This assumes all accounts in the sheet should go to all organizations
-	// Modify this logic if you need org-specific account assignment
+	// Step 3: Seed accounts for each organization (simple approach uses first org)
 	if len(orgIDs) > 0 {
-		// For simplicity, seed accounts to the first organization
-		// In production, you might want org-specific account sheets
 		if err := s.SeedAccountsFromExcel(ctx, filePath, orgIDs[0]); err != nil {
 			return fmt.Errorf("failed to seed accounts: %w", err)
 		}
@@ -408,7 +423,6 @@ func (s *Seeder) SeedAllFromExcel(ctx context.Context, filePath string) error {
 	return nil
 }
 
-// ExportTemplatesToExcel creates Excel template files with proper allowed values
 func (s *Seeder) ExportTemplatesToExcel(filePath string) error {
 	log.Printf("Creating Excel template: %s", filePath)
 
@@ -447,7 +461,7 @@ func (s *Seeder) ExportTemplatesToExcel(filePath string) error {
 	f.SetColWidth(orgSheet, "I", "I", 30)
 	f.SetColWidth(orgSheet, "J", "J", 12)
 
-	// Add example row
+	// Example row
 	f.SetCellValue(orgSheet, "A2", "Al Shifa Medical Center")
 	f.SetCellValue(orgSheet, "B2", "HEALTHCARE")
 	f.SetCellValue(orgSheet, "C2", "AE")
@@ -458,24 +472,6 @@ func (s *Seeder) ExportTemplatesToExcel(filePath string) error {
 	f.SetCellValue(orgSheet, "H2", "EST-001")
 	f.SetCellValue(orgSheet, "I2", "Multi-specialty clinic")
 	f.SetCellValue(orgSheet, "J2", "true")
-
-	// Add notes/instructions row with info style
-	noteStyle, _ := f.NewStyle(&excelize.Style{
-		Font:      &excelize.Font{Italic: true, Size: 9, Color: "666666"},
-		Alignment: &excelize.Alignment{WrapText: true, Vertical: "top"},
-	})
-
-	f.SetCellValue(orgSheet, "B3", "HEALTHCARE, RETAIL, MANUFACTURING, FINANCE, EDUCATION, HOSPITALITY, LOGISTICS, REAL_ESTATE, SERVICE, OTHER")
-	f.SetCellStyle(orgSheet, "B3", "B3", noteStyle)
-
-	f.SetCellValue(orgSheet, "D3", "ABU_DHABI, DUBAI, SHARJAH, RAS_AL_KHAIMAH, UMM_AL_QUWAIN, FUJAIRAH, AJMAN")
-	f.SetCellStyle(orgSheet, "D3", "D3", noteStyle)
-
-	f.SetCellValue(orgSheet, "F3", "AED, USD, EUR, GBP, INR, SAR, KWD, QAR")
-	f.SetCellStyle(orgSheet, "F3", "F3", noteStyle)
-
-	f.SetCellValue(orgSheet, "J3", "true or false")
-	f.SetCellStyle(orgSheet, "J3", "J3", noteStyle)
 
 	// ==================== Accounts Sheet ====================
 	accSheet := "Accounts"
@@ -494,43 +490,12 @@ func (s *Seeder) ExportTemplatesToExcel(filePath string) error {
 	f.SetColWidth(accSheet, "D", "D", 40)
 	f.SetColWidth(accSheet, "E", "E", 12)
 
-	// Add example rows
+	// Example rows
 	f.SetCellValue(accSheet, "A2", "1000")
 	f.SetCellValue(accSheet, "B2", "Cash")
 	f.SetCellValue(accSheet, "C2", "ASSET")
 	f.SetCellValue(accSheet, "D2", "Cash on hand")
 	f.SetCellValue(accSheet, "E2", "true")
-
-	f.SetCellValue(accSheet, "A3", "1100")
-	f.SetCellValue(accSheet, "B3", "Accounts Receivable")
-	f.SetCellValue(accSheet, "C3", "ASSET")
-	f.SetCellValue(accSheet, "D3", "Amount owed by customers")
-	f.SetCellValue(accSheet, "E3", "true")
-
-	f.SetCellValue(accSheet, "A4", "2000")
-	f.SetCellValue(accSheet, "B4", "Accounts Payable")
-	f.SetCellValue(accSheet, "C4", "LIABILITY")
-	f.SetCellValue(accSheet, "D4", "Amount owed to suppliers")
-	f.SetCellValue(accSheet, "E4", "true")
-
-	f.SetCellValue(accSheet, "A5", "4000")
-	f.SetCellValue(accSheet, "B5", "Medical Services Revenue")
-	f.SetCellValue(accSheet, "C5", "REVENUE")
-	f.SetCellValue(accSheet, "D5", "Income from patient services")
-	f.SetCellValue(accSheet, "E5", "true")
-
-	f.SetCellValue(accSheet, "A6", "5000")
-	f.SetCellValue(accSheet, "B6", "Salaries Expense")
-	f.SetCellValue(accSheet, "C6", "EXPENSE")
-	f.SetCellValue(accSheet, "D6", "Employee salaries and wages")
-	f.SetCellValue(accSheet, "E6", "true")
-
-	// Add notes
-	f.SetCellValue(accSheet, "C7", "ASSET, LIABILITY, EQUITY, REVENUE, EXPENSE")
-	f.SetCellStyle(accSheet, "C7", "C7", noteStyle)
-
-	f.SetCellValue(accSheet, "E7", "true or false")
-	f.SetCellStyle(accSheet, "E7", "E7", noteStyle)
 
 	// ==================== Shafafiya Sheet ====================
 	shafSheet := "Shafafiya"
@@ -543,17 +508,6 @@ func (s *Seeder) ExportTemplatesToExcel(filePath string) error {
 		f.SetCellStyle(shafSheet, cell, cell, headerStyle)
 	}
 
-	f.SetColWidth(shafSheet, "A", "A", 20)
-	f.SetColWidth(shafSheet, "B", "B", 20)
-	f.SetColWidth(shafSheet, "C", "C", 25)
-	f.SetColWidth(shafSheet, "D", "D", 20)
-	f.SetColWidth(shafSheet, "E", "E", 15)
-	f.SetColWidth(shafSheet, "F", "F", 12)
-	f.SetColWidth(shafSheet, "G", "G", 20)
-	f.SetColWidth(shafSheet, "H", "H", 20)
-	f.SetColWidth(shafSheet, "I", "I", 20)
-
-	// Add example row
 	f.SetCellValue(shafSheet, "A2", "EST-001")
 	f.SetCellValue(shafSheet, "B2", "clinic_user")
 	f.SetCellValue(shafSheet, "C2", "MySecurePassword123")
@@ -564,25 +518,6 @@ func (s *Seeder) ExportTemplatesToExcel(filePath string) error {
 	f.SetCellValue(shafSheet, "H2", "DEPARTMENTAL")
 	f.SetCellValue(shafSheet, "I2", "WEIGHTED")
 
-	// Add notes
-	f.SetCellValue(shafSheet, "C3", "Password will be encrypted automatically on import")
-	f.SetCellStyle(shafSheet, "C3", "C3", noteStyle)
-
-	f.SetCellValue(shafSheet, "E3", "AED, USD, EUR, GBP, INR, SAR, KWD, QAR")
-	f.SetCellStyle(shafSheet, "E3", "E3", noteStyle)
-
-	f.SetCellValue(shafSheet, "F3", "en, ar")
-	f.SetCellStyle(shafSheet, "F3", "F3", noteStyle)
-
-	f.SetCellValue(shafSheet, "G3", "true or false")
-	f.SetCellStyle(shafSheet, "G3", "G3", noteStyle)
-
-	f.SetCellValue(shafSheet, "H3", "DEPARTMENTAL, ACTIVITY_BASED, SERVICE_BASED")
-	f.SetCellStyle(shafSheet, "H3", "H3", noteStyle)
-
-	f.SetCellValue(shafSheet, "I3", "WEIGHTED, PERCENTAGE, FIXED")
-	f.SetCellStyle(shafSheet, "I3", "I3", noteStyle)
-
 	// Delete default Sheet1
 	f.DeleteSheet("Sheet1")
 
@@ -592,15 +527,11 @@ func (s *Seeder) ExportTemplatesToExcel(filePath string) error {
 	}
 
 	log.Printf("✓ Template created: %s", filePath)
-	log.Printf("  - Organizations sheet with 10 columns")
-	log.Printf("  - Accounts sheet with 5 example accounts")
-	log.Printf("  - Shafafiya sheet with complete configuration")
 	return nil
 }
 
-// ==================== Helper Functions ====================
+// ==================== Helpers ====================
 
-// getColumnOrDefault returns column value or default if not present
 func getColumnOrDefault(row []string, index int, defaultValue string) string {
 	if index < len(row) && strings.TrimSpace(row[index]) != "" {
 		return row[index]
@@ -608,16 +539,34 @@ func getColumnOrDefault(row []string, index int, defaultValue string) string {
 	return defaultValue
 }
 
-// encryptPassword encrypts password using bcrypt
+// nilIfEmptyStrPtr returns nil when pointer is nil or points to empty string, otherwise returns the dereferenced string.
+func nilIfEmptyStrPtr(s *string) interface{} {
+	if s == nil || strings.TrimSpace(*s) == "" {
+		return nil
+	}
+	return *s
+}
+
+// safeDeref returns a readable string for a *string (returns empty string if nil)
+func safeDeref(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
+}
+
+// encryptPassword hashes the password using bcrypt (non-reversible)
 func encryptPassword(password string) (string, error) {
+	if password == "" {
+		return "", nil
+	}
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
-		return "", fmt.Errorf("failed to encrypt password: %w", err)
+		return "", fmt.Errorf("failed to hash password: %w", err)
 	}
 	return string(hash), nil
 }
 
-// isValidAccountType validates account type
 func isValidAccountType(accountType string) bool {
 	validTypes := map[string]bool{
 		"ASSET":     true,
@@ -627,65 +576,4 @@ func isValidAccountType(accountType string) bool {
 		"EXPENSE":   true,
 	}
 	return validTypes[accountType]
-}
-
-// ValidateExcelStructure validates the Excel file structure before seeding
-func (s *Seeder) ValidateExcelStructure(filePath string) error {
-	log.Printf("Validating Excel structure: %s", filePath)
-
-	f, err := excelize.OpenFile(filePath)
-	if err != nil {
-		return fmt.Errorf("failed to open Excel file: %w", err)
-	}
-	defer f.Close()
-
-	// Check for required sheets
-	requiredSheets := []string{"Organizations", "Accounts", "Shafafiya"}
-	sheets := f.GetSheetList()
-	sheetMap := make(map[string]bool)
-	for _, sheet := range sheets {
-		sheetMap[sheet] = true
-	}
-
-	for _, required := range requiredSheets {
-		if !sheetMap[required] {
-			return fmt.Errorf("missing required sheet: %s", required)
-		}
-	}
-
-	// Validate Organizations sheet headers
-	orgRows, err := f.GetRows("Organizations")
-	if err != nil || len(orgRows) < 1 {
-		return fmt.Errorf("organizations sheet is empty or invalid")
-	}
-
-	expectedOrgHeaders := []string{"Name", "Type", "Country", "Emirate", "Area", "Currency", "License Number", "Establishment ID"}
-	if len(orgRows[0]) < len(expectedOrgHeaders) {
-		return fmt.Errorf("organizations sheet has insufficient columns")
-	}
-
-	// Validate Accounts sheet headers
-	accRows, err := f.GetRows("Accounts")
-	if err != nil || len(accRows) < 1 {
-		return fmt.Errorf("accounts sheet is empty or invalid")
-	}
-
-	expectedAccHeaders := []string{"Code", "Name", "Account Type"}
-	if len(accRows[0]) < len(expectedAccHeaders) {
-		return fmt.Errorf("accounts sheet has insufficient columns")
-	}
-
-	// Validate Shafafiya sheet headers
-	shafRows, err := f.GetRows("Shafafiya")
-	if err != nil || len(shafRows) < 1 {
-		return fmt.Errorf("shafafiya sheet is empty or invalid")
-	}
-
-	expectedShafHeaders := []string{"Establishment ID", "Username", "Password (Encrypted)", "Provider Code"}
-	if len(shafRows[0]) < len(expectedShafHeaders) {
-		return fmt.Errorf("shafafiya sheet has insufficient columns")
-	}
-
-	log.Printf("✓ Excel structure validation passed")
-	return nil
 }
