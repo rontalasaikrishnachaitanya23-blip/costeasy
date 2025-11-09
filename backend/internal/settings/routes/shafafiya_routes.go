@@ -5,19 +5,35 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// RegisterShafafiyaRoutes registers all Shafafiya-related API routes.
 func RegisterShafafiyaRoutes(router *gin.RouterGroup, handler *handler.ShafafiyaHandler) {
 	shafafiya := router.Group("/shafafiya")
+
+	// ─────────────────────────────────────────────
+	// 🔹 CRUD: Shafafiya Settings per Organization
+	// ─────────────────────────────────────────────
 	{
-		// Configuration/Setup routes only
 		shafafiya.POST("/organizations/:org_id", handler.CreateShafafiyaSettings)
 		shafafiya.GET("/organizations/:org_id", handler.GetShafafiyaSettings)
 		shafafiya.PUT("/organizations/:org_id", handler.UpdateShafafiyaSettings)
 		shafafiya.DELETE("/organizations/:org_id", handler.DeleteShafafiyaSettings)
+	}
 
-		// Validation endpoint for testing configuration
-		shafafiya.POST("/validate/:org_id", handler.ValidateShafafiyaConfig)
+	// ─────────────────────────────────────────────
+	// 🔹 Partial Updates for Credentials / Costing / Submission
+	// ─────────────────────────────────────────────
+	{
+		shafafiya.PUT("/organizations/:org_id/credentials", handler.UpdateShafafiyaCredentials)
+		shafafiya.PUT("/organizations/:org_id/costing", handler.UpdateShafafiyaCosting)
+		shafafiya.PUT("/organizations/:org_id/submission", handler.UpdateShafafiyaSubmission)
+	}
 
-		// List all configurations (for admin)
+	// ─────────────────────────────────────────────
+	// 🔹 Validation, Listing, & Monitoring
+	// ─────────────────────────────────────────────
+	{
+		shafafiya.GET("/organizations/:org_id/validate", handler.ValidateShafafiyaConfiguration)
 		shafafiya.GET("/", handler.ListShafafiyaSettings)
+		shafafiya.GET("/failed-submissions", handler.ListFailedSubmissions)
 	}
 }
