@@ -50,23 +50,13 @@ type RefreshTokenClaims struct {
 	jwt.RegisteredClaims
 }
 
-func NewJWTUtil(secret, accessExpiry, refreshExpiry string) *JWTUtil {
-	// Parse duration strings
-	accessDuration, err := parseDuration(accessExpiry)
-	if err != nil {
-		accessDuration = 15 * time.Minute
-	}
-
-	refreshDuration, err := parseDuration(refreshExpiry)
-	if err != nil {
-		refreshDuration = 7 * 24 * time.Hour
-	}
-
+// NewJWTUtil creates a JWT utility with typed duration values
+func NewJWTUtil(secret string, accessExpiry, refreshExpiry time.Duration) *JWTUtil {
 	return &JWTUtil{
 		accessSecret:  secret,
-		refreshSecret: secret, // Use same secret
-		accessExpiry:  accessDuration,
-		refreshExpiry: refreshDuration,
+		refreshSecret: secret, // You can later separate if needed
+		accessExpiry:  accessExpiry,
+		refreshExpiry: refreshExpiry,
 	}
 }
 
@@ -80,6 +70,9 @@ func parseDuration(s string) (time.Duration, error) {
 	}
 	return time.ParseDuration(s)
 }
+
+// silence unused warning for now
+var _ = parseDuration
 
 // GenerateAccessToken generates JWT access token with permissions
 func (j *JWTUtil) GenerateAccessToken(userID uuid.UUID, email string, roles []string, permissions []PermissionClaim) (string, error) {
