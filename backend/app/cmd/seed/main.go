@@ -3,6 +3,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"time"
 
@@ -17,7 +18,13 @@ func main() {
 
 	cfg := config.LoadConfig()
 	ctx := context.Background()
-	dbPool, err := pgxpool.New(ctx, cfg.DatabaseURL)
+
+	DatabaseURL := fmt.Sprintf(
+		"postgres://%s:%s@%s:%s/%s?sslmode=%s",
+		cfg.DBUser, cfg.DBPassword, cfg.DBHost, cfg.DBPort, cfg.DBName, cfg.DBSSLMode,
+	)
+
+	dbPool, err := pgxpool.New(ctx, DatabaseURL)
 	if err != nil {
 		log.Fatalf("Failed to connect to database: %v", err)
 	}
