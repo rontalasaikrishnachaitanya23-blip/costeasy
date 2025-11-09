@@ -1,31 +1,38 @@
-// backend/database/db.go
 package database
 
 import (
-    "context"
-    "fmt"
+	"context"
+	"fmt"
+	"log"
+	"time"
 
-    "github.com/chaitu35/costeasy/backend/app/config"
-    "github.com/jackc/pgx/v5/pgxpool"
+	"github.com/chaitu35/costeasy/backend/app/config"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// Pool is an alias for pgxpool.Pool
 type Pool = *pgxpool.Pool
 
-// ConnectDB establishes a connection to the database
 func ConnectDB(cfg *config.Config) (Pool, error) {
-    // Use DATABASE_URL directly
-    connString := cfg.DatabaseURL
+	// Build DSN manually
+	dsn := fmt.Sprintf(
+		"postgres://%s:%s@%s:%s/%s?sslmode=%s",
+		cfg.DBUser, cfg.DBPassword, cfg.DBHost, cfg.DBPort, cfg.DBName, cfg.DBSSLMode,
+	)
 
-    pool, err := pgxpool.New(context.Background(), connString)
-    if err != nil {
-        return nil, fmt.Errorf("unable to create connection pool: %w", err)
-    }
+	log.Printf("[DB] Connecting as %s@%s/%s", cfg.DBUser, cfg.DBHost, cfg.DBName)
 
-    // Test connection
-    if err := pool.Ping(context.Background()); err != nil {
-        return nil, fmt.Errorf("unable to ping database: %w", err)
-    }
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 
-    return pool, nil
+	pool, err := pgxpool.New(ctx, dsn)
+	if err != nil {
+		return nil, fmt.Errorf("unable to create connection pool: %w", err)
+	}
+
+	if err := pool.Ping(ctx); err != nil {
+		return nil, fmt.Errorf("unable to ping database: %w", err)
+	}
+
+	log.Println("✅ Database connected successfully")
+	return pool, nil
 }
