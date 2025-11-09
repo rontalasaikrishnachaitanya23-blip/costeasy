@@ -28,17 +28,17 @@ type ImportService struct {
 
 // ImportResult contains results of an import operation
 type ImportResult struct {
-	ImportLogID    uuid.UUID       `json:"import_log_id"`
-	TotalRows      int             `json:"total_rows"`
-	SuccessCount   int             `json:"success_count"`
-	ErrorCount     int             `json:"error_count"`
-	WarningCount   int             `json:"warning_count"`
-	Errors         []ImportError   `json:"errors"`
-	Warnings       []ImportWarning `json:"warnings"`
-	ImportedIDs    []uuid.UUID     `json:"imported_ids,omitempty"`
-	ProcessingTime time.Duration   `json:"processing_time"`
-	Status         string          `json:"status"` // success, partial, failed, validated
-	LegacySystem   string          `json:"legacy_system,omitempty"`
+	ImportLogID          uuid.UUID       `json:"import_log_id"`
+	TotalRows            int             `json:"total_rows"`
+	SuccessCount         int             `json:"success_count"`
+	ErrorCount           int             `json:"error_count"`
+	WarningCount         int             `json:"warning_count"`
+	Errors               []ImportError   `json:"errors"`
+	Warnings             []ImportWarning `json:"warnings"`
+	ImportedIDs          []uuid.UUID     `json:"imported_ids,omitempty"`
+	ProcessingTimeMillis int64           `json:"processing_time_millis" example:"1250"`
+	Status               string          `json:"status"`
+	LegacySystem         string          `json:"legacy_system,omitempty"`
 }
 
 // ImportError represents a single import error
@@ -308,7 +308,8 @@ func (s *ImportService) ImportChartOfAccounts(
 		result.Status = "validated"
 	}
 
-	result.ProcessingTime = time.Since(startTime)
+	result.ProcessingTimeMillis = time.Since(startTime).Milliseconds()
+
 	return result, nil
 }
 
@@ -444,7 +445,8 @@ func (s *ImportService) ImportJournalEntries(
 		result.Status = "validated"
 	}
 
-	result.ProcessingTime = time.Since(startTime)
+	result.ProcessingTimeMillis = time.Since(startTime).Milliseconds()
+
 	return result, nil
 }
 
