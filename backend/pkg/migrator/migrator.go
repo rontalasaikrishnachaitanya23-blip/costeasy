@@ -1,4 +1,3 @@
-// backend/pkg/migrator/migrator.go
 package migrator
 
 import (
@@ -9,17 +8,18 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// Migrator handles database migrations
+// Migrator handles file-based SQL migrations using pgxpool
 type Migrator struct {
 	pool           *pgxpool.Pool
 	migrationsPath string
 }
 
-// NewMigrator creates a new migrator instance
+// NewMigrator initializes the migrator with a DB pool and migrations directory
 func NewMigrator(pool *pgxpool.Pool, migrationsPath string) *Migrator {
 	return &Migrator{
 		pool:           pool,
@@ -27,25 +27,24 @@ func NewMigrator(pool *pgxpool.Pool, migrationsPath string) *Migrator {
 	}
 }
 
-// Up runs all pending migrations
+// Up applies all pending .up.sql migrations in order
 func (m *Migrator) Up(ctx context.Context) error {
-	log.Println("Running migrations...")
+	log.Println("🚀 Starting database migrations...")
 
-	// Create migrations table if not exists
+	// Ensure tracking table exists
 	if err := m.createMigrationsTable(ctx); err != nil {
-		return fmt.Errorf("failed to create migrations table: %w", err)
+		return fmt.Errorf("failed to create schema_migrations: %w", err)
 	}
 
-	// Get all migration files
-	migrations, err := m.getMigrationFiles()
+	// Load migration files
+	files, err := m.getMigrationFiles()
 	if err != nil {
-		return fmt.Errorf("failed to read migrations: %w", err)
+		return fmt.Errorf("failed to read migration files: %w", err)
 	}
 
-	// Get applied migrations
 	applied, err := m.getAppliedMigrations(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to get applied migrations: %w", err)
+		return fmt.Errorf("failed to fetch applied migrations: %w", err)
 	}
 
 	appliedMap := make(map[string]bool)
@@ -53,134 +52,147 @@ func (m *Migrator) Up(ctx context.Context) error {
 		appliedMap[a] = true
 	}
 
-	// Run pending migrations
-	count := 0
-	for _, migration := range migrations {
-		if !strings.HasSuffix(migration, ".up.sql") {
+	appliedCount := 0
+	for _, file := range files {
+		if !strings.HasSuffix(file, ".up.sql") {
 			continue
 		}
 
-		name := migration[:len(migration)-7] // Remove .up.sql
+		name := strings.TrimSuffix(file, ".up.sql")
 		if appliedMap[name] {
-			log.Printf("✓ Already applied: %s", name)
+			log.Printf("⏩ Skipping already applied migration: %s", name)
 			continue
 		}
 
-		// Read migration file
-		filePath := filepath.Join(m.migrationsPath, migration)
-		content, err := os.ReadFile(filePath)
-		if err != nil {
-			return fmt.Errorf("failed to read migration file %s: %w", migration, err)
+		if err := m.runMigration(ctx, name, file, true); err != nil {
+			return err
 		}
-
-		// Execute migration
-		if _, err := m.pool.Exec(ctx, string(content)); err != nil {
-			return fmt.Errorf("failed to execute migration %s: %w", name, err)
-		}
-
-		// Record migration
-		if err := m.recordMigration(ctx, name); err != nil {
-			return fmt.Errorf("failed to record migration %s: %w", name, err)
-		}
-
-		log.Printf("✓ Applied: %s", name)
-		count++
+		appliedCount++
 	}
 
-	if count == 0 {
-		log.Println("✓ No pending migrations")
+	if appliedCount == 0 {
+		log.Println("✅ No pending migrations.")
 	} else {
-		log.Printf("✓ Applied %d migrations", count)
+		log.Printf("✅ Applied %d new migration(s).", appliedCount)
 	}
-
 	return nil
 }
 
-// Down rolls back the last migration
+// Down rolls back the most recent migrations (default: 1 step)
 func (m *Migrator) Down(ctx context.Context, steps int) error {
-	if steps == 0 {
+	if steps <= 0 {
 		steps = 1
 	}
 
-	log.Printf("Rolling back %d migration(s)...", steps)
-
-	// Get applied migrations in reverse order
 	applied, err := m.getAppliedMigrations(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to get applied migrations: %w", err)
+		return fmt.Errorf("failed to fetch applied migrations: %w", err)
 	}
 
 	if len(applied) == 0 {
-		log.Println("✓ No migrations to rollback")
+		log.Println("⚠️  No migrations to rollback.")
 		return nil
 	}
 
-	// Rollback migrations
+	rollbackCount := 0
 	for i := 0; i < steps && i < len(applied); i++ {
 		name := applied[len(applied)-1-i]
+		file := name + ".down.sql"
 
-		// Find corresponding .down.sql file
-		downFile := name + ".down.sql"
-		filePath := filepath.Join(m.migrationsPath, downFile)
-		content, err := os.ReadFile(filePath)
-		if err != nil {
-			return fmt.Errorf("failed to read rollback file %s: %w", downFile, err)
+		if err := m.runMigration(ctx, name, file, false); err != nil {
+			return err
 		}
-
-		// Execute rollback
-		if _, err := m.pool.Exec(ctx, string(content)); err != nil {
-			return fmt.Errorf("failed to execute rollback %s: %w", name, err)
-		}
-
-		// Remove from history
-		if err := m.removeMigration(ctx, name); err != nil {
-			return fmt.Errorf("failed to remove migration record %s: %w", name, err)
-		}
-
-		log.Printf("✓ Rolled back: %s", name)
+		rollbackCount++
 	}
 
+	log.Printf("🌀 Rolled back %d migration(s).", rollbackCount)
 	return nil
 }
 
-// Version returns current migration version
+// Version prints the latest applied migration version
 func (m *Migrator) Version(ctx context.Context) (string, error) {
 	applied, err := m.getAppliedMigrations(ctx)
 	if err != nil {
-		return "", fmt.Errorf("failed to get applied migrations: %w", err)
+		return "", fmt.Errorf("failed to fetch applied migrations: %w", err)
 	}
-
 	if len(applied) == 0 {
-		return "0", nil
+		return "none", nil
 	}
-
 	return applied[len(applied)-1], nil
 }
 
-// Helper functions
+// ---------------------------------------------------------------------
+// 🧩 Internal Helper Methods
+// ---------------------------------------------------------------------
 
+// runMigration executes one migration inside a transaction
+func (m *Migrator) runMigration(ctx context.Context, name, file string, isUp bool) error {
+	filePath := filepath.Join(m.migrationsPath, file)
+	content, err := os.ReadFile(filePath)
+	if err != nil {
+		return fmt.Errorf("failed to read file %s: %w", file, err)
+	}
+
+	tx, err := m.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction for %s: %w", name, err)
+	}
+	defer tx.Rollback(ctx)
+
+	log.Printf("➡️  Executing %s ...", file)
+	start := time.Now()
+
+	if _, err := tx.Exec(ctx, string(content)); err != nil {
+		return fmt.Errorf("migration %s failed: %w", name, err)
+	}
+
+	if isUp {
+		if err := m.recordMigration(ctx, name); err != nil {
+			return fmt.Errorf("failed to record migration %s: %w", name, err)
+		}
+	} else {
+		if err := m.removeMigration(ctx, name); err != nil {
+			return fmt.Errorf("failed to remove migration %s: %w", name, err)
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("failed to commit migration %s: %w", name, err)
+	}
+
+	log.Printf("✅ Completed: %s (in %v)", file, time.Since(start))
+	return nil
+}
+
+// createMigrationsTable ensures the schema_migrations table exists
 func (m *Migrator) createMigrationsTable(ctx context.Context) error {
 	query := `
-        CREATE TABLE IF NOT EXISTS schema_migrations (
-            id SERIAL PRIMARY KEY,
-            version VARCHAR(255) NOT NULL UNIQUE,
-            applied_at TIMESTAMP DEFAULT NOW()
-        );
-    `
+	CREATE TABLE IF NOT EXISTS schema_migrations (
+		id SERIAL PRIMARY KEY,
+		version VARCHAR(255) NOT NULL UNIQUE,
+		applied_at TIMESTAMP DEFAULT NOW()
+	);
+	`
 	_, err := m.pool.Exec(ctx, query)
 	return err
 }
 
+// getMigrationFiles returns ordered .sql files from the directory
 func (m *Migrator) getMigrationFiles() ([]string, error) {
-	files, err := os.ReadDir(m.migrationsPath)
+	path, err := filepath.Abs(m.migrationsPath)
+	if err != nil {
+		return nil, err
+	}
+
+	files, err := os.ReadDir(path)
 	if err != nil {
 		return nil, err
 	}
 
 	var migrations []string
-	for _, file := range files {
-		if !file.IsDir() {
-			migrations = append(migrations, file.Name())
+	for _, f := range files {
+		if !f.IsDir() && (strings.HasSuffix(f.Name(), ".up.sql") || strings.HasSuffix(f.Name(), ".down.sql")) {
+			migrations = append(migrations, f.Name())
 		}
 	}
 
@@ -188,34 +200,33 @@ func (m *Migrator) getMigrationFiles() ([]string, error) {
 	return migrations, nil
 }
 
+// getAppliedMigrations fetches all versions already in schema_migrations
 func (m *Migrator) getAppliedMigrations(ctx context.Context) ([]string, error) {
-	query := "SELECT version FROM schema_migrations ORDER BY version"
-	rows, err := m.pool.Query(ctx, query)
+	rows, err := m.pool.Query(ctx, "SELECT version FROM schema_migrations ORDER BY version")
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	var migrations []string
+	var applied []string
 	for rows.Next() {
-		var version string
-		if err := rows.Scan(&version); err != nil {
+		var v string
+		if err := rows.Scan(&v); err != nil {
 			return nil, err
 		}
-		migrations = append(migrations, version)
+		applied = append(applied, v)
 	}
-
-	return migrations, rows.Err()
+	return applied, rows.Err()
 }
 
+// recordMigration inserts a version record after success
 func (m *Migrator) recordMigration(ctx context.Context, name string) error {
-	query := "INSERT INTO schema_migrations (version) VALUES ($1)"
-	_, err := m.pool.Exec(ctx, query, name)
+	_, err := m.pool.Exec(ctx, "INSERT INTO schema_migrations (version) VALUES ($1)", name)
 	return err
 }
 
+// removeMigration deletes a version record during rollback
 func (m *Migrator) removeMigration(ctx context.Context, name string) error {
-	query := "DELETE FROM schema_migrations WHERE version = $1"
-	_, err := m.pool.Exec(ctx, query, name)
+	_, err := m.pool.Exec(ctx, "DELETE FROM schema_migrations WHERE version = $1", name)
 	return err
 }
