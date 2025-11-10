@@ -425,3 +425,21 @@ func (r *UserRepository) GetUserRole(ctx context.Context, userID uuid.UUID) (*do
 
 	return &role, nil
 }
+
+// Exists checks whether a user exists, is active, and belongs to the given organization
+func (r *UserRepository) Exists(ctx context.Context, userID, orgID uuid.UUID) (bool, error) {
+	var exists bool
+	err := r.db.QueryRow(ctx, `
+		SELECT EXISTS(
+			SELECT 1
+			FROM users
+			WHERE id = $1
+			  AND organization_id = $2
+			  AND is_active = TRUE
+		)
+	`, userID, orgID).Scan(&exists)
+	if err != nil {
+		return false, err
+	}
+	return exists, nil
+}
